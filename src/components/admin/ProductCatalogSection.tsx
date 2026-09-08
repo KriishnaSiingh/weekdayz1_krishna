@@ -185,10 +185,14 @@ export default function ProductCatalogSection() {
                   <td className="px-4 py-3">
                     <span
                       className={`font-mono font-semibold ${
-                        p.inventory_count < 10 ? "text-amber-500" : "text-foreground"
+                        p.inventory_count <= 0
+                          ? "text-destructive font-bold"
+                          : p.inventory_count < 10
+                          ? "text-amber-500"
+                          : "text-foreground"
                       }`}
                     >
-                      {p.inventory_count} units
+                      {p.inventory_count <= 0 ? "0 (Out of Stock)" : `${p.inventory_count} units`}
                     </span>
                   </td>
                   <td className="px-4 py-3">

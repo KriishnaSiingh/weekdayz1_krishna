@@ -230,7 +230,7 @@ function HeroCarousel() {
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/25" />
             <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6 z-10">
               <div className="mx-auto w-full max-w-2xl flex justify-center">
-                <div className="w-full bg-black/50 backdrop-blur-md border border-white/20 p-6 sm:p-10 rounded-3xl shadow-2xl flex flex-col items-center text-center transition-transform duration-500 hover:border-white/30">
+                <div className="w-full bg-black/60 backdrop-blur-[2px] border border-white/20 p-6 sm:p-10 rounded-3xl shadow-2xl flex flex-col items-center text-center transition-transform duration-500 hover:border-white/30">
                   {s.badge && (
                     <span className="inline-block bg-white text-black font-black uppercase tracking-widest text-[10px] px-3.5 py-1 mb-3 rounded-full shadow-md">
                       {s.badge}

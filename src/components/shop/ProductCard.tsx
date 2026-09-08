@@ -19,6 +19,7 @@ export type ProductCardData = {
   compare_at_price_cents?: number | null;
   image_urls: string[];
   category: string;
+  inventory_count?: number;
 };
 
 export function ProductCard({ product }: { product: ProductCardData }) {
@@ -70,6 +71,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
     m.mutate();
   };
 
+  const isOutOfStock = product.inventory_count !== undefined && product.inventory_count <= 0;
+
   return (
     <Link to="/product/$slug" params={{ slug: product.slug }} className="group block relative">
       <div className="relative aspect-[4/5] overflow-hidden bg-muted">
@@ -91,9 +94,15 @@ export function ProductCard({ product }: { product: ProductCardData }) {
           whileHover={secondary && !hasSecondaryError ? { opacity: 0, scale: 1.04 } : { scale: 1.04 }}
           transition={{ duration: 0.4 }}
         />
-        <div className="absolute top-3 left-3 px-2 py-1 bg-background/80 backdrop-blur text-[10px] uppercase tracking-widest z-20">
-          {product.category}
-        </div>
+        {isOutOfStock ? (
+          <div className="absolute top-3 left-3 px-2 py-1 bg-destructive text-destructive-foreground font-bold text-[10px] uppercase tracking-widest z-20 shadow-md">
+            Out of Stock
+          </div>
+        ) : (
+          <div className="absolute top-3 left-3 px-2 py-1 bg-background/80 backdrop-blur text-[10px] uppercase tracking-widest z-20">
+            {product.category}
+          </div>
+        )}
 
         {/* Heart Icon Button */}
         <button

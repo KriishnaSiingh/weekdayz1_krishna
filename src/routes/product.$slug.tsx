@@ -2,7 +2,7 @@ import { createFileRoute, notFound, useNavigate, Link } from "@tanstack/react-ro
 import { useState, useEffect, useMemo } from "react";
 import { useSuspenseQuery, queryOptions, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ShoppingBag, Zap, Check, Star, Trash2, ShieldCheck, Truck, RotateCcw, Ruler, X, Maximize2, ChevronLeft, ChevronRight, ArrowRight, Heart, Box } from "lucide-react";
+import { ShoppingBag, Zap, Check, Star, Trash2, ShieldCheck, Truck, RotateCcw, Ruler, X, Maximize2, ChevronLeft, ChevronRight, ArrowRight, Heart } from "lucide-react";
 import { getProductBySlug, listProducts } from "@/lib/products.functions";
 import { getFallbackProducts } from "@/lib/fallback-data";
 import { getProductReviews, submitReview, deleteReview, canUserReviewProduct } from "@/lib/reviews.functions";
@@ -12,7 +12,6 @@ import { formatPrice } from "@/lib/format";
 import { useCurrencyStore } from "@/lib/currency-store";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
-import { TShirt3DPreviewModal } from "@/components/shop/TShirt3DPreviewModal";
 
 const productQ = (slug: string) =>
   queryOptions({
@@ -124,7 +123,6 @@ function ProductPageInner() {
   const [zoom, setZoom] = useState({ x: 50, y: 50, active: false });
   const [showSizeChart, setShowSizeChart] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [preview3D, setPreview3D] = useState(false);
   const [quantity, setQuantity] = useState(1);
   // Couple variant: separate config for male & female
   const isCouple = product.category?.toLowerCase().includes("couple") ||
@@ -235,7 +233,13 @@ function ProductPageInner() {
 
   const existingUserReview = reviews?.find((r) => r.user_id === user?.id);
 
+  const isOutOfStock = (product.inventory_count ?? 0) <= 0;
+
   const handleAdd = (express?: boolean) => {
+    if (isOutOfStock) {
+      toast.error("This item is currently out of stock");
+      return;
+    }
     if (!user) {
       toast.error("Please sign in to add items to your bag");
       navigate({ to: "/auth" });
@@ -351,16 +355,6 @@ function ProductPageInner() {
               title="Click to view image in full screen"
             >
               <Maximize2 className="h-3.5 w-3.5" /> View Image
-            </button>
-
-            {/* 3D Interactive View Button */}
-            <button
-              type="button"
-              onClick={() => setPreview3D(true)}
-              className="absolute bottom-3 right-3 px-3.5 py-2 bg-foreground text-background font-black text-xs uppercase tracking-widest shadow-xl flex items-center gap-2 hover:opacity-90 transition-all z-20 hover:scale-105 cursor-pointer"
-              title="Open interactive 3D view of product"
-            >
-              <Box className="h-4 w-4" /> 3D View
             </button>
           </div>
         </div>
@@ -497,17 +491,22 @@ function ProductPageInner() {
                   <Ruler className="h-3.5 w-3.5" /> Size Guide
                 </button>
               </div>
-              <span className={`text-xs uppercase tracking-widest ${product.inventory_count < 10 ? "text-destructive font-semibold" : "text-muted-foreground"}`}>
-                {product.inventory_count < 10 ? `Only ${product.inventory_count} left` : `${product.inventory_count} in stock`}
+              <span className={`text-xs uppercase tracking-widest ${isOutOfStock ? "text-destructive font-bold" : product.inventory_count < 10 ? "text-destructive font-semibold" : "text-muted-foreground"}`}>
+                {isOutOfStock ? "OUT OF STOCK" : product.inventory_count < 10 ? `Only ${product.inventory_count} left` : `${product.inventory_count} in stock`}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
               {product.sizes.map((s: string) => (
                 <button
                   key={s}
+                  disabled={isOutOfStock}
                   onClick={() => setSize(s)}
                   className={`min-w-14 py-3 text-sm font-semibold border ${
-                    size === s ? "bg-foreground text-background border-foreground" : "border-border hover:border-foreground"
+                    isOutOfStock
+                      ? "opacity-50 cursor-not-allowed border-border"
+                      : size === s
+                      ? "bg-foreground text-background border-foreground"
+                      : "border-border hover:border-foreground"
                   }`}
                 >
                   {s}
@@ -674,15 +673,19 @@ function ProductPageInner() {
             <div className="flex items-center gap-0 border border-border w-fit">
               <button
                 type="button"
+                disabled={isOutOfStock || quantity <= 1}
                 onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="h-10 w-10 flex items-center justify-center text-lg font-bold hover:bg-secondary transition-colors"
+                className="h-10 w-10 flex items-center justify-center text-lg font-bold hover:bg-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Decrease quantity"
               >−</button>
-              <span className="h-10 w-12 flex items-center justify-center text-sm font-bold border-x border-border">{quantity}</span>
+              <span className="h-10 w-12 flex items-center justify-center text-sm font-bold border-x border-border">
+                {isOutOfStock ? 0 : quantity}
+              </span>
               <button
                 type="button"
-                onClick={() => setQuantity((q) => q + 1)}
-                className="h-10 w-10 flex items-center justify-center text-lg font-bold hover:bg-secondary transition-colors"
+                disabled={isOutOfStock || quantity >= product.inventory_count}
+                onClick={() => setQuantity((q) => Math.min(product.inventory_count, q + 1))}
+                className="h-10 w-10 flex items-center justify-center text-lg font-bold hover:bg-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Increase quantity"
               >+</button>
             </div>
@@ -691,15 +694,25 @@ function ProductPageInner() {
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
             <button
               onClick={() => handleAdd(false)}
-              className="flex-1 flex items-center justify-center gap-2 bg-foreground text-background px-6 py-4 text-sm uppercase tracking-widest font-semibold hover:opacity-85 transition"
+              disabled={isOutOfStock}
+              className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 text-sm uppercase tracking-widest font-semibold transition ${
+                isOutOfStock
+                  ? "bg-muted text-muted-foreground cursor-not-allowed border border-border opacity-70"
+                  : "bg-foreground text-background hover:opacity-85"
+              }`}
             >
-              <ShoppingBag className="h-4 w-4" /> Add to Cart
+              <ShoppingBag className="h-4 w-4" /> {isOutOfStock ? "Out of Stock" : "Add to Cart"}
             </button>
             <button
               onClick={() => handleAdd(true)}
-              className="flex-1 flex items-center justify-center gap-2 bg-accent text-accent-foreground px-6 py-4 text-sm uppercase tracking-widest font-semibold hover:bg-accent/90 transition"
+              disabled={isOutOfStock}
+              className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 text-sm uppercase tracking-widest font-semibold transition ${
+                isOutOfStock
+                  ? "bg-muted/50 text-muted-foreground cursor-not-allowed border border-border opacity-70"
+                  : "bg-accent text-accent-foreground hover:bg-accent/90"
+              }`}
             >
-              <Zap className="h-4 w-4" /> Buy Now
+              <Zap className="h-4 w-4" /> {isOutOfStock ? "Out of Stock" : "Buy Now"}
             </button>
             <button
               type="button"
@@ -844,27 +857,6 @@ function ProductPageInner() {
 
       {/* You May Also Like Section */}
       <YouMayAlsoLikeSection currentProductId={product.id} category={product.category} />
-
-      {/* 3D Interactive Modal — wraps the product image onto a rotating t-shirt */}
-      <TShirt3DPreviewModal
-        open={preview3D}
-        onOpenChange={setPreview3D}
-        layers={[
-          {
-            id: "product-preview",
-            type: "image",
-            side: "Front",
-            previewUrl: product.image_urls[imgIdx] || product.image_urls[0],
-            x: 0,
-            y: 0,
-            scale: 1,
-            rotate: 0,
-          },
-        ]}
-        baseColor={color || "#FFFFFF"}
-        garmentType={product.title}
-        size={(size as "XS" | "S" | "M" | "L" | "XL" | "XXL" | "XXXL") ?? "L"}
-      />
     </div>
   );
 }
