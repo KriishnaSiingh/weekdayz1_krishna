@@ -48,11 +48,29 @@ import { getPublicClient } from "@/lib/supabase-server";
 
 let CUSTOM_FALLBACK_PRODUCTS: FallbackProduct[] = [];
 let DELETED_PRODUCT_IDS: Set<string> = new Set();
+let customProductsFetchedAt = 0;
+let customProductsFetchPromise: Promise<FallbackProduct[]> | null = null;
 
 const STORAGE_BUCKET = "product-images";
 const STORAGE_PATH = "custom_products.json";
+const CUSTOM_PRODUCTS_CACHE_TTL_MS = 60_000;
 
 export async function fetchStorageCustomProducts(): Promise<FallbackProduct[]> {
+  const now = Date.now();
+  if (now - customProductsFetchedAt < CUSTOM_PRODUCTS_CACHE_TTL_MS) {
+    return CUSTOM_FALLBACK_PRODUCTS;
+  }
+  if (customProductsFetchPromise) return customProductsFetchPromise;
+
+  customProductsFetchPromise = fetchStorageCustomProductsUncached();
+  try {
+    return await customProductsFetchPromise;
+  } finally {
+    customProductsFetchPromise = null;
+  }
+}
+
+async function fetchStorageCustomProductsUncached(): Promise<FallbackProduct[]> {
   try {
     const supabase = getPublicClient();
     // product-images bucket is public readable per RLS policy
@@ -87,6 +105,7 @@ export async function fetchStorageCustomProducts(): Promise<FallbackProduct[]> {
         // Merge deleted IDs — keep any already-tracked deletions
         const mergedDeletedIds = new Set([...DELETED_PRODUCT_IDS, ...storageDeletedIds]);
         DELETED_PRODUCT_IDS = mergedDeletedIds;
+        customProductsFetchedAt = Date.now();
 
         return CUSTOM_FALLBACK_PRODUCTS;
       }
@@ -97,6 +116,8 @@ export async function fetchStorageCustomProducts(): Promise<FallbackProduct[]> {
   } catch (e: any) {
     console.warn("[fetchStorageCustomProducts] exception:", e?.message);
   }
+  // Avoid retrying the same slow request on every route after a transient failure.
+  customProductsFetchedAt = Date.now();
   // On failure, preserve existing in-memory products instead of returning empty
   return CUSTOM_FALLBACK_PRODUCTS;
 }

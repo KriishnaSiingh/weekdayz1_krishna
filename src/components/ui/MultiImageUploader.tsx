@@ -7,6 +7,73 @@ import { uploadProductImage } from "@/lib/admin.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 
+/**
+ * Compresses an image before upload using the Canvas API.
+ * - Resizes to max 1400×1400 (preserving aspect ratio) — enough for crisp product zoom
+ * - Re-encodes as WebP @ 82% quality (~30–40% smaller than raw JPEG, no visible loss)
+ * - Falls back to JPEG if WebP is unsupported (very rare)
+ */
+async function compressImage(file: File): Promise<{ blob: Blob; filename: string; contentType: string }> {
+  const MAX_SIDE = 1400;
+  const QUALITY = 0.82;
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      let { width, height } = img;
+      if (width > MAX_SIDE || height > MAX_SIDE) {
+        if (width > height) {
+          height = Math.round((height * MAX_SIDE) / width);
+          width = MAX_SIDE;
+        } else {
+          width = Math.round((width * MAX_SIDE) / height);
+          height = MAX_SIDE;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Try WebP first — best compression with no visible loss
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const baseName = file.name.replace(/\.[^.]+$/, "");
+            resolve({ blob, filename: `${baseName}.webp`, contentType: "image/webp" });
+          } else {
+            // Fallback to JPEG if WebP toBlob fails
+            canvas.toBlob(
+              (jpegBlob) => {
+                if (jpegBlob) {
+                  const baseName = file.name.replace(/\.[^.]+$/, "");
+                  resolve({ blob: jpegBlob, filename: `${baseName}.jpg`, contentType: "image/jpeg" });
+                } else {
+                  reject(new Error("Image compression failed"));
+                }
+              },
+              "image/jpeg",
+              QUALITY
+            );
+          }
+        },
+        "image/webp",
+        QUALITY
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Failed to load image for compression"));
+    };
+    img.src = objectUrl;
+  });
+}
+
 interface UploadedImage {
   id: string;
   file?: File;
@@ -50,6 +117,19 @@ export function MultiImageUploader({
     async (img: UploadedImage) => {
       if (!img.file) return;
 
+      // Compress before upload: resize to max 1400px, re-encode as WebP @ 82% quality
+      let blob: Blob = img.file;
+      let filename = img.file.name;
+      let contentType = img.file.type;
+      try {
+        const compressed = await compressImage(img.file);
+        blob = compressed.blob;
+        filename = compressed.filename;
+        contentType = compressed.contentType;
+      } catch (_) {
+        // If compression fails for any reason, fall back to the original file
+      }
+
       const reader = new FileReader();
       reader.onload = async () => {
         const base64Data = reader.result as string;
@@ -58,8 +138,8 @@ export function MultiImageUploader({
           const res = await uploadProductImageFn({
             data: {
               base64: base64Data,
-              filename: img.file!.name,
-              contentType: img.file!.type,
+              filename,
+              contentType,
             },
           });
 
@@ -78,11 +158,11 @@ export function MultiImageUploader({
         } catch (_) {}
 
         try {
-          const ext = img.file!.name.split(".").pop() ?? "jpg";
+          const ext = filename.split(".").pop() ?? "webp";
           const path = `products/${crypto.randomUUID()}.${ext}`;
           const { error } = await supabase.storage
             .from("product-images")
-            .upload(path, img.file!, { upsert: false, contentType: img.file!.type });
+            .upload(path, blob, { upsert: false, contentType });
 
           if (!error) {
             const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
@@ -111,7 +191,7 @@ export function MultiImageUploader({
           return next;
         });
       };
-      reader.readAsDataURL(img.file);
+      reader.readAsDataURL(blob);
     },
     [notifyChange, uploadProductImageFn]
   );

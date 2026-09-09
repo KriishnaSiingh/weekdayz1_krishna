@@ -6,11 +6,12 @@ import crypto from "crypto";
 import { checkRateLimit } from "./rate-limiter";
 
 function getRazorpayInstance() {
-  const keyId = process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID;
+  // Only read server-side env vars — never VITE_ prefixed vars which would leak into the client bundle
+  const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
   if (!keyId || !keySecret) {
-    throw new Error("Missing Razorpay API credentials (RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET).");
+    throw new Error("Missing Razorpay API credentials.");
   }
 
   return new Razorpay({
@@ -31,6 +32,20 @@ const CreateRazorpayOrderSchema = z.object({
     )
     .optional(),
 });
+
+/**
+ * Returns the Razorpay publishable key_id to the authenticated frontend.
+ * This keeps the key out of the JS bundle while still being available at runtime.
+ */
+export const getPaymentConfig = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    if (!keyId) {
+      throw new Error("Payment service is not configured.");
+    }
+    return { keyId };
+  });
 
 /**
  * Creates a Razorpay Order on the backend with rate-limiting & price verification.

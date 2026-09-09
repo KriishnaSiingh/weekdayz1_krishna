@@ -81,6 +81,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
             src={secondary}
             alt=""
             aria-hidden
+            loading="lazy"
+            decoding="async"
             onError={() => setHasSecondaryError(true)}
             className="absolute inset-0 w-full h-full object-cover scale-105 group-hover:scale-100 transition-transform duration-500"
           />
@@ -88,6 +90,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         <motion.img
           src={hasPrimaryError ? "/products/tee-black.jpg" : primary}
           alt={product.title}
+          loading="lazy"
+          decoding="async"
           onError={() => setHasPrimaryError(true)}
           className="absolute inset-0 w-full h-full object-cover z-10"
           initial={{ opacity: 1 }}

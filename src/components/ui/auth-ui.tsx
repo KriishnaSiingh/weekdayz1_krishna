@@ -11,6 +11,8 @@ import { twMerge } from "tailwind-merge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useNavigate, Link } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { sendWelcomeEmail } from "@/lib/email";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -379,6 +381,7 @@ export function AuthUI({ signInContent = {}, signUpContent = {} }: AuthUIProps) 
   const [isSignIn, setIsSignIn] = useState(true);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const sendWelcomeEmailFn = useServerFn(sendWelcomeEmail);
   const toggleForm = () => setIsSignIn((prev) => !prev);
 
   const finalSignInContent = {
@@ -411,6 +414,9 @@ export function AuthUI({ signInContent = {}, signUpContent = {} }: AuthUIProps) 
           },
         });
         if (error) throw error;
+        void sendWelcomeEmailFn({ data: { email, name } }).catch((emailError) => {
+          console.error("Welcome email delivery failed:", emailError);
+        });
         toast.success("Account created! Please check your email for confirmation.");
       } else {
         const { data: authData, error } = await supabase.auth.signInWithPassword({

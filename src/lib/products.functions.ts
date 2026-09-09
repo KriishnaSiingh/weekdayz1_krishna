@@ -5,14 +5,17 @@ import { getFallbackProductBySlug, getFallbackProducts, fetchStorageCustomProduc
 import { getPublicClient } from "@/lib/supabase-server";
 
 export const listProducts = createServerFn({ method: "GET" }).handler(async () => {
-  await fetchStorageCustomProducts();
+  const storageProductsPromise = fetchStorageCustomProducts();
   try {
     const supabase = getPublicClient();
-    const { data, error } = await supabase
-      .from("products")
-      .select("id, slug, title, description, price_cents, compare_at_price_cents, inventory_count, image_urls, sizes, colors, category")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
+    const [{ data, error }] = await Promise.all([
+      supabase
+        .from("products")
+        .select("id, slug, title, description, price_cents, compare_at_price_cents, inventory_count, image_urls, sizes, colors, category")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false }),
+      storageProductsPromise,
+    ]);
     if (error) throw new Error(error.message);
     
     const dbProducts = (data ?? []).map((p) => {
@@ -44,7 +47,7 @@ export const getProductBySlug = createServerFn({ method: "GET" })
     const decodedSlug = decodeURIComponent(rawSlug).trim();
     const cleanSlug = decodedSlug.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-    await fetchStorageCustomProducts();
+    const storageProductsPromise = fetchStorageCustomProducts();
 
     // Helper: enrich product with fallback images if DB images are missing
     const enrichImages = (product: any) => {
@@ -69,6 +72,7 @@ export const getProductBySlug = createServerFn({ method: "GET" })
         .maybeSingle();
 
       if (!exactErr && exactMatch) {
+        if (!exactMatch.image_urls?.length) await storageProductsPromise;
         return enrichImages(exactMatch);
       }
 
@@ -82,6 +86,7 @@ export const getProductBySlug = createServerFn({ method: "GET" })
           .maybeSingle();
 
         if (!rawErr && rawMatch) {
+          if (!rawMatch.image_urls?.length) await storageProductsPromise;
           return enrichImages(rawMatch);
         }
       }
@@ -95,6 +100,7 @@ export const getProductBySlug = createServerFn({ method: "GET" })
         .maybeSingle();
 
       if (!idErr && idMatch) {
+        if (!idMatch.image_urls?.length) await storageProductsPromise;
         return enrichImages(idMatch);
       }
 
@@ -108,11 +114,13 @@ export const getProductBySlug = createServerFn({ method: "GET" })
         .maybeSingle();
 
       if (!ilikeErr && ilikeMatch) {
+        if (!ilikeMatch.image_urls?.length) await storageProductsPromise;
         return enrichImages(ilikeMatch);
       }
     } catch (_) {}
 
     // Final fallback: check in-memory / storage-backed fallback products
+    await storageProductsPromise;
     const fallbacks = getFallbackProducts();
     const found = fallbacks.find(
       (p) =>

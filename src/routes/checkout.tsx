@@ -21,7 +21,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { formatPrice } from "@/lib/format";
 import { calculateShippingCost, checkAddressServiceability } from "@/lib/shipping";
 import { placeOrder } from "@/lib/orders.functions";
-import { createRazorpayOrder } from "@/lib/razorpay.functions";
+import { createRazorpayOrder, getPaymentConfig } from "@/lib/razorpay.functions";
 import { StorePoliciesNotice } from "@/components/shop/StorePoliciesNotice";
 
 const ShippingSchema = z.object({
@@ -64,9 +64,21 @@ function Checkout() {
 
   const placeOrderFn = useServerFn(placeOrder);
   const createRazorpayOrderFn = useServerFn(createRazorpayOrder);
+  const getPaymentConfigFn = useServerFn(getPaymentConfig);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [shipping, setShipping] = useState<Shipping | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Preload Razorpay SDK as soon as user reaches step 2 (order review),
+  // so the script is already cached when they click Pay
+  useEffect(() => {
+    if (step >= 2 && typeof window !== "undefined" && !(window as any).Razorpay) {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, [step]);
 
   const subtotal = cartSubtotal(items);
   const shippingCost = shipping ? calculateShippingCost(shipping) : 9900;
@@ -275,21 +287,22 @@ function Checkout() {
     if (!shipping) return;
     setLoading(true);
 
-    const isLoaded = await loadRazorpayScript();
-    if (!isLoaded) {
-      toast.error("Failed to load Razorpay SDK. Check your internet connection.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const order = await createRazorpayOrderFn({
-        data: { amount_cents: total },
-      });
+      // Run all three in parallel: load SDK + create order + fetch key_id
+      const [isLoaded, order, { keyId: razorpayKey }] = await Promise.all([
+        loadRazorpayScript(),
+        createRazorpayOrderFn({ data: { amount_cents: total } }),
+        getPaymentConfigFn(),
+      ]);
 
-      const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+      if (!isLoaded) {
+        toast.error("Failed to load Razorpay SDK. Check your internet connection.");
+        setLoading(false);
+        return;
+      }
+
       if (!razorpayKey) {
-        toast.error("Payment configuration error: VITE_RAZORPAY_KEY_ID is missing.");
+        toast.error("Payment is temporarily unavailable. Please try again.");
         setLoading(false);
         return;
       }

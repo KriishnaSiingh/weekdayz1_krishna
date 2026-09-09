@@ -28,7 +28,7 @@ import { useDropzone } from "react-dropzone";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
-function compressDataUrl(dataUrl: string, maxDim = 1280, quality = 0.82): Promise<string> {
+function compressDataUrl(dataUrl: string, maxDim = 1400, quality = 0.82): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -42,7 +42,9 @@ function compressDataUrl(dataUrl: string, maxDim = 1280, quality = 0.82): Promis
         const ctx = canvas.getContext("2d");
         if (!ctx) return resolve(dataUrl);
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        // Use WebP for best compression; fall back to JPEG
+        const webp = canvas.toDataURL("image/webp", quality);
+        resolve(webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", quality));
       } catch {
         resolve(dataUrl);
       }
@@ -51,6 +53,45 @@ function compressDataUrl(dataUrl: string, maxDim = 1280, quality = 0.82): Promis
     img.src = dataUrl;
   });
 }
+
+/** Compress a File to a WebP Blob (falls back to JPEG). Used before Supabase storage uploads. */
+function compressFileToBlob(file: File, maxDim = 1400, quality = 0.82): Promise<{ blob: Blob; ext: string; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const ratio = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * ratio);
+      const h = Math.round(img.height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve({ blob, ext: "webp", contentType: "image/webp" });
+          else {
+            canvas.toBlob(
+              (jpegBlob) => {
+                if (jpegBlob) resolve({ blob: jpegBlob, ext: "jpg", contentType: "image/jpeg" });
+                else reject(new Error("Compression failed"));
+              },
+              "image/jpeg",
+              quality
+            );
+          }
+        },
+        "image/webp",
+        quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Image load failed")); };
+    img.src = objectUrl;
+  });
+}
+
 
 export default function MockupsAndColorsSection() {
   const [colors, setColors] = useState<MockupColor[]>([]);
@@ -88,26 +129,36 @@ export default function MockupsAndColorsSection() {
     if (!editingColor) return;
     setUploadingSide(side);
     try {
-      const ext = file.name.split(".").pop() || "jpg";
+      // Compress to WebP before uploading — saves ~40% storage vs raw JPEG/PNG
+      let blob: Blob = file;
+      let ext = file.name.split(".").pop() || "jpg";
+      let contentType = file.type;
+      try {
+        const compressed = await compressFileToBlob(file);
+        blob = compressed.blob;
+        ext = compressed.ext;
+        contentType = compressed.contentType;
+      } catch (_) {}
+
       const filename = `mockup_${editingColor.id || crypto.randomUUID()}_${side}_${Date.now()}.${ext}`;
 
       const { data, error } = await supabase.storage
         .from("product-images")
-        .upload(filename, file, { upsert: true, contentType: file.type });
+        .upload(filename, blob, { upsert: true, contentType });
 
       let publicUrl = "";
       if (!error && data) {
         const { data: pubData } = supabase.storage.from("product-images").getPublicUrl(data.path);
         publicUrl = pubData.publicUrl;
       } else {
-        // Fallback to base64 data URL
+        // Fallback to base64 data URL from the compressed blob
         const reader = new FileReader();
         publicUrl = await new Promise((resolve) => {
           reader.onload = async (e) => {
             const compressed = await compressDataUrl(e.target?.result as string);
             resolve(compressed);
           };
-          reader.readAsDataURL(file);
+          reader.readAsDataURL(blob);
         });
       }
 
